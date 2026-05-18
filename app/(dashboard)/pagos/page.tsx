@@ -14,6 +14,7 @@ export default async function PagosPage() {
       date,
       due_date,
       status,
+      invoice_number,
       doctors(name)
     `)
     .eq('user_id', user?.id)
@@ -27,6 +28,7 @@ export default async function PagosPage() {
       sales(
         id,
         total,
+        invoice_number,
         doctors(name)
       )
     `)
@@ -41,7 +43,7 @@ export default async function PagosPage() {
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Pagos</h1>
         <p className="text-muted-foreground">
-          Registra pagos de tus ventas
+          Registra pagos y visualiza el estado de tus cobranzas
         </p>
       </div>
       <PaymentsList 

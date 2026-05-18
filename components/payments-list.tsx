@@ -33,6 +33,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { toast } from 'sonner'
 
 interface Sale {
   id: string
@@ -40,6 +41,7 @@ interface Sale {
   date: string
   due_date: string
   status: string
+  invoice_number?: string
   doctors: { name: string } | null
 }
 
@@ -52,6 +54,7 @@ interface Payment {
   sales: {
     id: string
     total: number
+    invoice_number?: string
     doctors: { name: string } | null
   } | null
 }
@@ -63,6 +66,7 @@ interface PaymentsListProps {
 
 export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
   const [payments, setPayments] = useState(initialPayments)
+  const [salesState, setSalesState] = useState(sales)
   const [search, setSearch] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -75,7 +79,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
 
   // Calculate balance for each sale
   const salesWithBalance = useMemo(() => {
-    return sales.map(sale => {
+    return salesState.map(sale => {
       const salePayments = payments.filter(p => p.sale_id === sale.id)
       const totalPaid = salePayments.reduce((acc, p) => acc + Number(p.amount), 0)
       const balance = Number(sale.total) - totalPaid
@@ -85,10 +89,11 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
         balance,
       }
     }).filter(sale => sale.balance > 0)
-  }, [sales, payments])
+  }, [salesState, payments])
 
   const filteredPayments = payments.filter(payment =>
-    payment.sales?.doctors?.name.toLowerCase().includes(search.toLowerCase())
+    payment.sales?.doctors?.name.toLowerCase().includes(search.toLowerCase()) ||
+    payment.sales?.invoice_number?.toLowerCase().includes(search.toLowerCase())
   )
 
   const selectedSale = salesWithBalance.find(s => s.id === formData.sale_id)
@@ -112,7 +117,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
       
       // Validate amount doesn't exceed balance
       if (selectedSale && amount > selectedSale.balance) {
-        alert('El monto no puede exceder el balance pendiente')
+        toast.error('El monto no puede exceder el balance pendiente')
         setIsLoading(false)
         return
       }
@@ -129,6 +134,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
           sales(
             id,
             total,
+            invoice_number,
             doctors(name)
           )
         `)
@@ -136,17 +142,38 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
 
       if (error) throw error
 
+      // Update payments list immediately
       setPayments([data, ...payments])
 
       // Check if sale is fully paid and update status
       if (selectedSale) {
         const newBalance = selectedSale.balance - amount
+        let newStatus = 'pendiente'
+        
         if (newBalance <= 0) {
-          await supabase
-            .from('sales')
-            .update({ status: 'pagado' })
-            .eq('id', formData.sale_id)
+          newStatus = 'pagado'
+        } else if (newBalance < Number(selectedSale.total)) {
+          newStatus = 'parcialmente_pagado'
         }
+        
+        // Update sale status in database
+        await supabase
+          .from('sales')
+          .update({ status: newStatus })
+          .eq('id', formData.sale_id)
+        
+        // Update local sales state
+        setSalesState(prev => prev.map(sale => 
+          sale.id === formData.sale_id 
+            ? { ...sale, status: newStatus }
+            : sale
+        ))
+
+        const statusMessage = newStatus === 'pagado' 
+          ? 'Venta pagada completamente' 
+          : `Pago registrado - Balance: $${newBalance.toLocaleString('es-MX')}`
+        
+        toast.success(statusMessage)
       }
 
       setIsOpen(false)
@@ -154,6 +181,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
       router.refresh()
     } catch (error) {
       console.error('Error creating payment:', error)
+      toast.error('Error al registrar el pago')
     } finally {
       setIsLoading(false)
     }
@@ -176,6 +204,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Factura</TableHead>
                     <TableHead>Doctor</TableHead>
                     <TableHead>Fecha Venta</TableHead>
                     <TableHead className="text-right">Total</TableHead>
@@ -189,6 +218,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                     const isOverdue = new Date(sale.due_date) < new Date()
                     return (
                       <TableRow key={sale.id}>
+                        <TableCell className="font-mono text-sm">{sale.invoice_number || '-'}</TableCell>
                         <TableCell className="font-medium">{sale.doctors?.name}</TableCell>
                         <TableCell>{format(new Date(sale.date), 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="text-right">
@@ -254,7 +284,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                       <SelectContent>
                         {salesWithBalance.map((sale) => (
                           <SelectItem key={sale.id} value={sale.id}>
-                            {sale.doctors?.name} - ${sale.balance.toLocaleString('es-MX')} pendiente
+                            {sale.invoice_number ? `#${sale.invoice_number} - ` : ''}{sale.doctors?.name} - ${sale.balance.toLocaleString('es-MX')} pendiente
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -323,7 +353,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Buscar pagos..."
+                placeholder="Buscar por doctor o factura..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-10"
@@ -340,6 +370,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Factura</TableHead>
                     <TableHead>Doctor</TableHead>
                     <TableHead>Fecha de Pago</TableHead>
                     <TableHead className="text-right">Monto</TableHead>
@@ -348,6 +379,9 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                 <TableBody>
                   {filteredPayments.map((payment) => (
                     <TableRow key={payment.id}>
+                      <TableCell className="font-mono text-sm">
+                        {payment.sales?.invoice_number || '-'}
+                      </TableCell>
                       <TableCell className="font-medium">
                         {payment.sales?.doctors?.name}
                       </TableCell>
