@@ -14,6 +14,7 @@ export default async function PagosPage() {
       date,
       due_date,
       status,
+      invoice_number,
       doctors(name)
     `)
     .eq('user_id', user?.id)
@@ -27,6 +28,7 @@ export default async function PagosPage() {
       sales(
         id,
         total,
+        invoice_number,
         doctors(name)
       )
     `)

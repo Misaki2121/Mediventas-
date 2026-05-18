@@ -41,6 +41,7 @@ interface Sale {
   date: string
   due_date: string
   status: string
+  invoice_number: string | null
   doctors: { name: string } | null
 }
 
@@ -53,6 +54,7 @@ interface Payment {
   sales: {
     id: string
     total: number
+    invoice_number: string | null
     doctors: { name: string } | null
   } | null
 }
@@ -90,7 +92,8 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
   }, [sales, payments])
 
   const filteredPayments = payments.filter(payment =>
-    payment.sales?.doctors?.name.toLowerCase().includes(search.toLowerCase())
+    payment.sales?.doctors?.name.toLowerCase().includes(search.toLowerCase()) ||
+    (payment.sales?.invoice_number && payment.sales.invoice_number.toLowerCase().includes(search.toLowerCase()))
   )
 
   const selectedSale = salesWithBalance.find(s => s.id === formData.sale_id)
@@ -150,6 +153,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
           sales(
             id,
             total,
+            invoice_number,
             doctors(name)
           )
         `)
@@ -221,6 +225,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Factura</TableHead>
                     <TableHead>Doctor</TableHead>
                     <TableHead>Fecha Venta</TableHead>
                     <TableHead className="text-right">Total</TableHead>
@@ -234,7 +239,10 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                     const isOverdue = new Date(sale.due_date) < new Date()
                     return (
                       <TableRow key={sale.id}>
-                        <TableCell className="font-medium">{sale.doctors?.name}</TableCell>
+                        <TableCell className="font-medium text-teal-700">
+                          {sale.invoice_number || 'Sin factura'}
+                        </TableCell>
+                        <TableCell>{sale.doctors?.name}</TableCell>
                         <TableCell>{format(new Date(sale.date + 'T00:00:00'), 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="text-right">
                           ${Number(sale.total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
@@ -299,7 +307,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                       <SelectContent>
                         {salesWithBalance.map((sale) => (
                           <SelectItem key={sale.id} value={sale.id}>
-                            {sale.doctors?.name} - ${sale.balance.toLocaleString('es-MX')} pendiente
+                            {sale.invoice_number || 'Sin factura'} - {sale.doctors?.name} - ${sale.balance.toLocaleString('es-MX')} pendiente
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -392,6 +400,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Factura</TableHead>
                     <TableHead>Doctor</TableHead>
                     <TableHead>Fecha de Pago</TableHead>
                     <TableHead className="text-right">Monto</TableHead>
@@ -400,7 +409,10 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                 <TableBody>
                   {filteredPayments.map((payment) => (
                     <TableRow key={payment.id}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium text-teal-700">
+                        {payment.sales?.invoice_number || 'Sin factura'}
+                      </TableCell>
+                      <TableCell>
                         {payment.sales?.doctors?.name}
                       </TableCell>
                       <TableCell>
