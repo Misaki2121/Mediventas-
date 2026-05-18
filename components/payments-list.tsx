@@ -28,11 +28,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Search, CreditCard } from 'lucide-react'
+import { Plus, Search, CreditCard, Loader2 } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { useToast } from '@/hooks/use-toast'
 
 interface Sale {
   id: string
@@ -40,6 +41,7 @@ interface Sale {
   date: string
   due_date: string
   status: string
+  invoice_number: string | null
   doctors: { name: string } | null
 }
 
@@ -52,6 +54,7 @@ interface Payment {
   sales: {
     id: string
     total: number
+    invoice_number: string | null
     doctors: { name: string } | null
   } | null
 }
@@ -72,6 +75,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
     payment_date: format(new Date(), 'yyyy-MM-dd'),
   })
   const router = useRouter()
+  const { toast } = useToast()
 
   // Calculate balance for each sale
   const salesWithBalance = useMemo(() => {
@@ -88,7 +92,8 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
   }, [sales, payments])
 
   const filteredPayments = payments.filter(payment =>
-    payment.sales?.doctors?.name.toLowerCase().includes(search.toLowerCase())
+    payment.sales?.doctors?.name.toLowerCase().includes(search.toLowerCase()) ||
+    (payment.sales?.invoice_number && payment.sales.invoice_number.toLowerCase().includes(search.toLowerCase()))
   )
 
   const selectedSale = salesWithBalance.find(s => s.id === formData.sale_id)
@@ -103,6 +108,9 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (isLoading) return // Prevent double submit
+    
     setIsLoading(true)
 
     const supabase = createClient()
@@ -110,13 +118,29 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
     try {
       const amount = parseFloat(formData.amount)
       
+      // Validate amount
+      if (isNaN(amount) || amount <= 0) {
+        toast({
+          title: "Error",
+          description: "El monto debe ser mayor a 0",
+          variant: "destructive"
+        })
+        setIsLoading(false)
+        return
+      }
+      
       // Validate amount doesn't exceed balance
       if (selectedSale && amount > selectedSale.balance) {
-        alert('El monto no puede exceder el balance pendiente')
+        toast({
+          title: "Error",
+          description: "El monto no puede exceder el balance pendiente",
+          variant: "destructive"
+        })
         setIsLoading(false)
         return
       }
 
+      // Insert payment
       const { data, error } = await supabase
         .from('payments')
         .insert({
@@ -129,6 +153,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
           sales(
             id,
             total,
+            invoice_number,
             doctors(name)
           )
         `)
@@ -136,24 +161,48 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
 
       if (error) throw error
 
-      setPayments([data, ...payments])
-
-      // Check if sale is fully paid and update status
+      // Calculate new balance and update sale status
       if (selectedSale) {
+        const newTotalPaid = selectedSale.totalPaid + amount
         const newBalance = selectedSale.balance - amount
+        
+        let newStatus = 'pendiente'
         if (newBalance <= 0) {
-          await supabase
-            .from('sales')
-            .update({ status: 'pagado' })
-            .eq('id', formData.sale_id)
+          newStatus = 'pagado'
+        } else if (newTotalPaid > 0) {
+          newStatus = 'parcialmente_pagado'
+        }
+
+        const { error: updateError } = await supabase
+          .from('sales')
+          .update({ status: newStatus })
+          .eq('id', formData.sale_id)
+
+        if (updateError) {
+          console.error('Error updating sale status:', updateError)
         }
       }
 
+      // Update local state immediately
+      setPayments(prevPayments => [data, ...prevPayments])
+
+      toast({
+        title: "Pago registrado",
+        description: `Pago de $${amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })} registrado exitosamente`,
+      })
+
       setIsOpen(false)
       resetForm()
+      
+      // Refresh server data
       router.refresh()
     } catch (error) {
       console.error('Error creating payment:', error)
+      toast({
+        title: "Error",
+        description: "No se pudo registrar el pago. Intenta de nuevo.",
+        variant: "destructive"
+      })
     } finally {
       setIsLoading(false)
     }
@@ -176,6 +225,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Factura</TableHead>
                     <TableHead>Doctor</TableHead>
                     <TableHead>Fecha Venta</TableHead>
                     <TableHead className="text-right">Total</TableHead>
@@ -189,8 +239,11 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                     const isOverdue = new Date(sale.due_date) < new Date()
                     return (
                       <TableRow key={sale.id}>
-                        <TableCell className="font-medium">{sale.doctors?.name}</TableCell>
-                        <TableCell>{format(new Date(sale.date), 'dd/MM/yyyy')}</TableCell>
+                        <TableCell className="font-medium text-teal-700">
+                          {sale.invoice_number || 'Sin factura'}
+                        </TableCell>
+                        <TableCell>{sale.doctors?.name}</TableCell>
+                        <TableCell>{format(new Date(sale.date + 'T00:00:00'), 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="text-right">
                           ${Number(sale.total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                         </TableCell>
@@ -201,7 +254,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                           ${sale.balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                         </TableCell>
                         <TableCell className={isOverdue ? 'text-red-600 font-medium' : ''}>
-                          {format(new Date(sale.due_date), 'dd/MM/yyyy')}
+                          {format(new Date(sale.due_date + 'T00:00:00'), 'dd/MM/yyyy')}
                           {isOverdue && ' (Vencido)'}
                         </TableCell>
                       </TableRow>
@@ -254,7 +307,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                       <SelectContent>
                         {salesWithBalance.map((sale) => (
                           <SelectItem key={sale.id} value={sale.id}>
-                            {sale.doctors?.name} - ${sale.balance.toLocaleString('es-MX')} pendiente
+                            {sale.invoice_number || 'Sin factura'} - {sale.doctors?.name} - ${sale.balance.toLocaleString('es-MX')} pendiente
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -310,7 +363,14 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                       disabled={isLoading || !formData.sale_id || !formData.amount} 
                       className="bg-teal-600 hover:bg-teal-700"
                     >
-                      {isLoading ? 'Guardando...' : 'Registrar Pago'}
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Guardando...
+                        </>
+                      ) : (
+                        'Registrar Pago'
+                      )}
                     </Button>
                   </div>
                 </form>
@@ -340,6 +400,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Factura</TableHead>
                     <TableHead>Doctor</TableHead>
                     <TableHead>Fecha de Pago</TableHead>
                     <TableHead className="text-right">Monto</TableHead>
@@ -348,11 +409,14 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                 <TableBody>
                   {filteredPayments.map((payment) => (
                     <TableRow key={payment.id}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium text-teal-700">
+                        {payment.sales?.invoice_number || 'Sin factura'}
+                      </TableCell>
+                      <TableCell>
                         {payment.sales?.doctors?.name}
                       </TableCell>
                       <TableCell>
-                        {format(new Date(payment.payment_date), 'dd MMMM yyyy', { locale: es })}
+                        {format(new Date(payment.payment_date + 'T00:00:00'), 'dd MMMM yyyy', { locale: es })}
                       </TableCell>
                       <TableCell className="text-right text-green-600 font-medium">
                         ${Number(payment.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })}

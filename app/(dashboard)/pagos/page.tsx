@@ -14,6 +14,7 @@ export default async function PagosPage() {
       date,
       due_date,
       status,
+      invoice_number,
       doctors(name)
     `)
     .eq('user_id', user?.id)
@@ -27,6 +28,7 @@ export default async function PagosPage() {
       sales(
         id,
         total,
+        invoice_number,
         doctors(name)
       )
     `)
@@ -35,6 +37,21 @@ export default async function PagosPage() {
   // Filter payments by user's sales
   const userSaleIds = sales?.map(s => s.id) || []
   const userPayments = payments?.filter(p => userSaleIds.includes(p.sale_id)) || []
+
+  // Transform sales data to match expected type
+  const transformedSales = (sales || []).map(sale => ({
+    ...sale,
+    doctors: Array.isArray(sale.doctors) ? sale.doctors[0] || null : sale.doctors
+  }))
+
+  // Transform payments data to match expected type
+  const transformedPayments = userPayments.map(payment => ({
+    ...payment,
+    sales: payment.sales ? {
+      ...payment.sales,
+      doctors: Array.isArray(payment.sales.doctors) ? payment.sales.doctors[0] || null : payment.sales.doctors
+    } : null
+  }))
 
   return (
     <div className="space-y-6">
@@ -45,8 +62,8 @@ export default async function PagosPage() {
         </p>
       </div>
       <PaymentsList 
-        sales={sales || []} 
-        initialPayments={userPayments}
+        sales={transformedSales} 
+        initialPayments={transformedPayments}
       />
     </div>
   )

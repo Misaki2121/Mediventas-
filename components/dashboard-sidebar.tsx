@@ -22,8 +22,8 @@ import type { User } from '@supabase/supabase-js'
 
 interface Profile {
   id: string
-  name: string | null
-  role: string | null
+  full_name: string | null
+  is_active: boolean | null
 }
 
 interface DashboardSidebarProps {
@@ -49,7 +49,6 @@ export function DashboardSidebar({ user, profile }: DashboardSidebarProps) {
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/auth/login')
-    router.refresh()
   }
 
   const SidebarContent = () => (
@@ -84,7 +83,7 @@ export function DashboardSidebar({ user, profile }: DashboardSidebarProps) {
       <div className="p-4 border-t border-teal-700">
         <div className="px-3 py-2 mb-2">
           <p className="text-sm font-medium text-white truncate">
-            {profile.name || user.email}
+            {profile.full_name || user.email}
           </p>
           <p className="text-xs text-teal-200 truncate">{user.email}</p>
         </div>

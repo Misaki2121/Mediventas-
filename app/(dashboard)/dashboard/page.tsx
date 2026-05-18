@@ -36,9 +36,20 @@ export default async function DashboardPage() {
     .select('sale_id, amount')
     .in('sale_id', pendingSaleIds.length > 0 ? pendingSaleIds : [''])
 
+  // Get ALL payments for the current month to calculate commission correctly
+  const monthlySaleIds = monthlySales?.map(s => s.id) || []
+  const { data: monthlyPayments } = await supabase
+    .from('payments')
+    .select('sale_id, amount, payment_date')
+    .gte('payment_date', format(monthStart, 'yyyy-MM-dd'))
+    .lte('payment_date', format(monthEnd, 'yyyy-MM-dd'))
+
   // Calculate totals
   const totalSales = monthlySales?.reduce((acc, sale) => acc + Number(sale.total), 0) || 0
-  const commission = totalSales * 0.05
+  
+  // Commission is calculated ONLY on payments received this month (5%)
+  const totalPaymentsReceived = monthlyPayments?.reduce((acc, payment) => acc + Number(payment.amount), 0) || 0
+  const commission = totalPaymentsReceived * 0.05
 
   // Calculate payment status for each pending sale
   const salesWithPayments = pendingSales?.map(sale => {
@@ -61,6 +72,17 @@ export default async function DashboardPage() {
   const overdueSales = salesWithPayments.filter(s => s.isOverdue)
   const dueSoonSales = salesWithPayments.filter(s => s.isDueSoon)
   const recentSales = monthlySales?.slice(0, 5) || []
+
+  // Helper to safely get doctor name from Supabase relation
+  const getDoctorName = (doctors: unknown): string => {
+    if (Array.isArray(doctors)) {
+      return doctors[0]?.name || 'Sin doctor'
+    }
+    if (doctors && typeof doctors === 'object' && 'name' in doctors) {
+      return (doctors as { name: string }).name || 'Sin doctor'
+    }
+    return 'Sin doctor'
+  }
 
   return (
     <div className="space-y-6">
@@ -100,7 +122,7 @@ export default async function DashboardPage() {
               ${commission.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
             </div>
             <p className="text-xs text-muted-foreground">
-              Tu ganancia del mes
+              Sobre ${totalPaymentsReceived.toLocaleString('es-MX', { minimumFractionDigits: 2 })} cobrado
             </p>
           </CardContent>
         </Card>
@@ -156,7 +178,7 @@ export default async function DashboardPage() {
                 {recentSales.map((sale) => (
                   <div key={sale.id} className="flex items-center justify-between border-b pb-3 last:border-0">
                     <div>
-                      <p className="font-medium">{(sale.doctors as { name: string } | null)?.name || 'Sin doctor'}</p>
+                      <p className="font-medium">{getDoctorName(sale.doctors)}</p>
                       <p className="text-sm text-muted-foreground">
                         {format(new Date(sale.date), 'dd MMM yyyy', { locale: es })}
                       </p>
@@ -197,7 +219,7 @@ export default async function DashboardPage() {
                 {overdueSales.map((sale) => (
                   <div key={sale.id} className="flex items-center justify-between border-b pb-3 last:border-0 bg-red-50 p-2 rounded-lg">
                     <div>
-                      <p className="font-medium text-red-700">{(sale.doctors as { name: string } | null)?.name || 'Sin doctor'}</p>
+                      <p className="font-medium text-red-700">{getDoctorName(sale.doctors)}</p>
                       <p className="text-sm text-red-600">
                         Vencido: {format(new Date(sale.due_date), 'dd MMM yyyy', { locale: es })}
                       </p>
@@ -213,7 +235,7 @@ export default async function DashboardPage() {
                 {dueSoonSales.map((sale) => (
                   <div key={sale.id} className="flex items-center justify-between border-b pb-3 last:border-0 bg-amber-50 p-2 rounded-lg">
                     <div>
-                      <p className="font-medium text-amber-700">{(sale.doctors as { name: string } | null)?.name || 'Sin doctor'}</p>
+                      <p className="font-medium text-amber-700">{getDoctorName(sale.doctors)}</p>
                       <p className="text-sm text-amber-600">
                         Vence: {format(new Date(sale.due_date), 'dd MMM yyyy', { locale: es })}
                       </p>
