@@ -13,7 +13,6 @@ export default function BloqueadoPage() {
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/auth/login')
-    router.refresh()
   }
 
   return (

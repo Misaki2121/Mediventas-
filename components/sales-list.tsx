@@ -498,7 +498,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                           {sale.invoice_number || '-'}
                         </TableCell>
                         <TableCell>{sale.doctors?.name}</TableCell>
-                        <TableCell>{format(new Date(sale.date), 'dd/MM/yyyy')}</TableCell>
+                        <TableCell>{format(new Date(sale.date + 'T00:00:00'), 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="text-right">
                           ${Number(sale.total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                         </TableCell>
@@ -506,7 +506,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                           ${balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                         </TableCell>
                         <TableCell className={isOverdue ? 'text-red-600 font-medium' : ''}>
-                          {format(new Date(sale.due_date), 'dd/MM/yyyy')}
+                          {format(new Date(sale.due_date + 'T00:00:00'), 'dd/MM/yyyy')}
                         </TableCell>
                         <TableCell>
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
@@ -546,7 +546,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
             <DialogDescription>
               <span className="font-medium text-teal-700">{viewingSale?.invoice_number}</span>
               {' - '}
-              {viewingSale?.doctors?.name} - {viewingSale && format(new Date(viewingSale.date), 'dd MMMM yyyy', { locale: es })}
+              {viewingSale?.doctors?.name} - {viewingSale && format(new Date(viewingSale.date + 'T00:00:00'), 'dd MMMM yyyy', { locale: es })}
             </DialogDescription>
           </DialogHeader>
           {viewingSale && (

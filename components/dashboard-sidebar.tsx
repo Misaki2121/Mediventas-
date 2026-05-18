@@ -49,7 +49,6 @@ export function DashboardSidebar({ user, profile }: DashboardSidebarProps) {
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/auth/login')
-    router.refresh()
   }
 
   const SidebarContent = () => (

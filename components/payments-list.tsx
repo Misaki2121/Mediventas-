@@ -235,7 +235,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                     return (
                       <TableRow key={sale.id}>
                         <TableCell className="font-medium">{sale.doctors?.name}</TableCell>
-                        <TableCell>{format(new Date(sale.date), 'dd/MM/yyyy')}</TableCell>
+                        <TableCell>{format(new Date(sale.date + 'T00:00:00'), 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="text-right">
                           ${Number(sale.total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                         </TableCell>
@@ -246,7 +246,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                           ${sale.balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                         </TableCell>
                         <TableCell className={isOverdue ? 'text-red-600 font-medium' : ''}>
-                          {format(new Date(sale.due_date), 'dd/MM/yyyy')}
+                          {format(new Date(sale.due_date + 'T00:00:00'), 'dd/MM/yyyy')}
                           {isOverdue && ' (Vencido)'}
                         </TableCell>
                       </TableRow>
@@ -404,7 +404,7 @@ export function PaymentsList({ sales, initialPayments }: PaymentsListProps) {
                         {payment.sales?.doctors?.name}
                       </TableCell>
                       <TableCell>
-                        {format(new Date(payment.payment_date), 'dd MMMM yyyy', { locale: es })}
+                        {format(new Date(payment.payment_date + 'T00:00:00'), 'dd MMMM yyyy', { locale: es })}
                       </TableCell>
                       <TableCell className="text-right text-green-600 font-medium">
                         ${Number(payment.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
