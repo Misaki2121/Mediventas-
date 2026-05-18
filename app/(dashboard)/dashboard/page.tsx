@@ -36,9 +36,20 @@ export default async function DashboardPage() {
     .select('sale_id, amount')
     .in('sale_id', pendingSaleIds.length > 0 ? pendingSaleIds : [''])
 
+  // Get ALL payments for the current month to calculate commission correctly
+  const monthlySaleIds = monthlySales?.map(s => s.id) || []
+  const { data: monthlyPayments } = await supabase
+    .from('payments')
+    .select('sale_id, amount, payment_date')
+    .gte('payment_date', format(monthStart, 'yyyy-MM-dd'))
+    .lte('payment_date', format(monthEnd, 'yyyy-MM-dd'))
+
   // Calculate totals
   const totalSales = monthlySales?.reduce((acc, sale) => acc + Number(sale.total), 0) || 0
-  const commission = totalSales * 0.05
+  
+  // Commission is calculated ONLY on payments received this month (5%)
+  const totalPaymentsReceived = monthlyPayments?.reduce((acc, payment) => acc + Number(payment.amount), 0) || 0
+  const commission = totalPaymentsReceived * 0.05
 
   // Calculate payment status for each pending sale
   const salesWithPayments = pendingSales?.map(sale => {
@@ -111,7 +122,7 @@ export default async function DashboardPage() {
               ${commission.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
             </div>
             <p className="text-xs text-muted-foreground">
-              Tu ganancia del mes
+              Sobre ${totalPaymentsReceived.toLocaleString('es-MX', { minimumFractionDigits: 2 })} cobrado
             </p>
           </CardContent>
         </Card>

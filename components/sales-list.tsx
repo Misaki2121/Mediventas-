@@ -28,11 +28,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Search, ShoppingCart, Trash2, Eye } from 'lucide-react'
+import { Plus, Search, ShoppingCart, Trash2, Eye, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, addDays } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { useToast } from '@/hooks/use-toast'
 
 interface SaleItem {
   id: string
@@ -49,6 +50,7 @@ interface Sale {
   payment_term: number
   due_date: string
   status: string
+  invoice_number: string | null
   created_at: string
   user_id: string
   doctors: { name: string } | null
@@ -95,15 +97,18 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
     doctor_id: '',
     date: format(new Date(), 'yyyy-MM-dd'),
     payment_term: '30',
+    invoice_number: '',
   })
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedProduct, setSelectedProduct] = useState('')
   const [quantity, setQuantity] = useState('1')
   const router = useRouter()
+  const { toast } = useToast()
 
   const filteredSales = sales.filter(sale =>
     sale.doctors?.name.toLowerCase().includes(search.toLowerCase()) ||
-    sale.status.toLowerCase().includes(search.toLowerCase())
+    sale.status.toLowerCase().includes(search.toLowerCase()) ||
+    (sale.invoice_number && sale.invoice_number.toLowerCase().includes(search.toLowerCase()))
   )
 
   const getBalance = (saleId: string, total: number) => {
@@ -117,6 +122,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
       doctor_id: '',
       date: format(new Date(), 'yyyy-MM-dd'),
       payment_term: '30',
+      invoice_number: '',
     })
     setCart([])
     setSelectedProduct('')
@@ -156,9 +162,37 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (cart.length === 0) {
-      alert('Agrega al menos un producto')
+      toast({
+        title: "Error",
+        description: "Agrega al menos un producto",
+        variant: "destructive"
+      })
       return
     }
+    
+    // Validate invoice number
+    if (!formData.invoice_number.trim()) {
+      toast({
+        title: "Error",
+        description: "El numero de factura es obligatorio",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    // Check for duplicate invoice number
+    const duplicateInvoice = sales.find(
+      s => s.invoice_number?.toLowerCase() === formData.invoice_number.trim().toLowerCase()
+    )
+    if (duplicateInvoice) {
+      toast({
+        title: "Error",
+        description: "Ya existe una venta con este numero de factura",
+        variant: "destructive"
+      })
+      return
+    }
+    
     setIsLoading(true)
 
     const supabase = createClient()
@@ -178,6 +212,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
           payment_term: parseInt(formData.payment_term),
           due_date: format(dueDate, 'yyyy-MM-dd'),
           status: 'pendiente',
+          invoice_number: formData.invoice_number.trim(),
           user_id: user?.id,
         })
         .select(`
@@ -222,11 +257,21 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
         setSales([completeSale, ...sales])
       }
 
+      toast({
+        title: "Venta registrada",
+        description: `Venta #${formData.invoice_number} registrada exitosamente`,
+      })
+
       setIsOpen(false)
       resetForm()
       router.refresh()
     } catch (error) {
       console.error('Error creating sale:', error)
+      toast({
+        title: "Error",
+        description: "No se pudo registrar la venta. Intenta de nuevo.",
+        variant: "destructive"
+      })
     } finally {
       setIsLoading(false)
     }
@@ -256,7 +301,17 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                   </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Numero de Factura *</Label>
+                      <Input
+                        type="text"
+                        value={formData.invoice_number}
+                        onChange={(e) => setFormData({ ...formData, invoice_number: e.target.value })}
+                        placeholder="Ej: FAC-001"
+                        required
+                      />
+                    </div>
                     <div className="space-y-2">
                       <Label>Doctor *</Label>
                       <Select
@@ -295,9 +350,9 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="30">30 días</SelectItem>
-                          <SelectItem value="60">60 días</SelectItem>
-                          <SelectItem value="90">90 días</SelectItem>
+                          <SelectItem value="30">30 dias</SelectItem>
+                          <SelectItem value="60">60 dias</SelectItem>
+                          <SelectItem value="90">90 dias</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -383,10 +438,17 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                     </Button>
                     <Button 
                       type="submit" 
-                      disabled={isLoading || cart.length === 0 || !formData.doctor_id} 
+                      disabled={isLoading || cart.length === 0 || !formData.doctor_id || !formData.invoice_number} 
                       className="bg-teal-600 hover:bg-teal-700"
                     >
-                      {isLoading ? 'Guardando...' : 'Guardar Venta'}
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Guardando...
+                        </>
+                      ) : (
+                        'Guardar Venta'
+                      )}
                     </Button>
                   </div>
                 </form>
@@ -416,6 +478,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Factura</TableHead>
                     <TableHead>Doctor</TableHead>
                     <TableHead>Fecha</TableHead>
                     <TableHead className="text-right">Total</TableHead>
@@ -431,7 +494,10 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                     const isOverdue = new Date(sale.due_date) < new Date() && balance > 0
                     return (
                       <TableRow key={sale.id}>
-                        <TableCell className="font-medium">{sale.doctors?.name}</TableCell>
+                        <TableCell className="font-medium text-teal-700">
+                          {sale.invoice_number || '-'}
+                        </TableCell>
+                        <TableCell>{sale.doctors?.name}</TableCell>
                         <TableCell>{format(new Date(sale.date), 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="text-right">
                           ${Number(sale.total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
@@ -478,6 +544,8 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
           <DialogHeader>
             <DialogTitle>Detalle de Venta</DialogTitle>
             <DialogDescription>
+              <span className="font-medium text-teal-700">{viewingSale?.invoice_number}</span>
+              {' - '}
               {viewingSale?.doctors?.name} - {viewingSale && format(new Date(viewingSale.date), 'dd MMMM yyyy', { locale: es })}
             </DialogDescription>
           </DialogHeader>
