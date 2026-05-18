@@ -16,7 +16,7 @@ export default async function DashboardPage() {
   // Get sales for current month
   const { data: monthlySales } = await supabase
     .from('sales')
-    .select('id, total, date, status, due_date, doctor_id, doctors(name)')
+    .select('id, total, date, status, due_date, doctor_id, invoice_number, doctors(name)')
     .eq('user_id', user?.id)
     .gte('date', format(monthStart, 'yyyy-MM-dd'))
     .lte('date', format(monthEnd, 'yyyy-MM-dd'))
@@ -25,9 +25,20 @@ export default async function DashboardPage() {
   // Get all pending sales for payment tracking
   const { data: pendingSales } = await supabase
     .from('sales')
-    .select('id, total, due_date, status, doctor_id, doctors(name)')
+    .select('id, total, due_date, status, doctor_id, invoice_number, doctors(name)')
     .eq('user_id', user?.id)
-    .eq('status', 'pendiente')
+    .neq('status', 'pagado')
+
+  // Get ALL payments for current month to calculate commission (commission is based on collected payments)
+  const { data: monthlyPayments } = await supabase
+    .from('payments')
+    .select('sale_id, amount, payment_date')
+    .gte('payment_date', format(monthStart, 'yyyy-MM-dd'))
+    .lte('payment_date', format(monthEnd, 'yyyy-MM-dd'))
+
+  // Filter to only include payments for user's sales
+  const monthlySaleIds = monthlySales?.map(s => s.id) || []
+  const userMonthlyPayments = monthlyPayments?.filter(p => monthlySaleIds.includes(p.sale_id)) || []
 
   // Get payments for pending sales
   const pendingSaleIds = pendingSales?.map(s => s.id) || []
@@ -38,7 +49,10 @@ export default async function DashboardPage() {
 
   // Calculate totals
   const totalSales = monthlySales?.reduce((acc, sale) => acc + Number(sale.total), 0) || 0
-  const commission = totalSales * 0.05
+  
+  // IMPORTANT: Commission is calculated from PAYMENTS received this month, not from sales
+  const totalPaymentsThisMonth = userMonthlyPayments.reduce((acc, p) => acc + Number(p.amount), 0)
+  const commission = totalPaymentsThisMonth * 0.05
 
   // Calculate payment status for each pending sale
   const salesWithPayments = pendingSales?.map(sale => {
@@ -100,7 +114,7 @@ export default async function DashboardPage() {
               ${commission.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
             </div>
             <p className="text-xs text-muted-foreground">
-              Tu ganancia del mes
+              Basado en ${totalPaymentsThisMonth.toLocaleString('es-MX')} cobrado
             </p>
           </CardContent>
         </Card>
@@ -158,7 +172,7 @@ export default async function DashboardPage() {
                     <div>
                       <p className="font-medium">{(sale.doctors as { name: string } | null)?.name || 'Sin doctor'}</p>
                       <p className="text-sm text-muted-foreground">
-                        {format(new Date(sale.date), 'dd MMM yyyy', { locale: es })}
+                        {sale.invoice_number ? `#${sale.invoice_number} - ` : ''}{format(new Date(sale.date), 'dd MMM yyyy', { locale: es })}
                       </p>
                     </div>
                     <div className="text-right">
@@ -166,9 +180,11 @@ export default async function DashboardPage() {
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
                         sale.status === 'pagado' 
                           ? 'bg-green-100 text-green-700' 
+                          : sale.status === 'parcialmente_pagado'
+                          ? 'bg-blue-100 text-blue-700'
                           : 'bg-amber-100 text-amber-700'
                       }`}>
-                        {sale.status}
+                        {sale.status === 'parcialmente_pagado' ? 'parcial' : sale.status}
                       </span>
                     </div>
                   </div>
@@ -199,7 +215,7 @@ export default async function DashboardPage() {
                     <div>
                       <p className="font-medium text-red-700">{(sale.doctors as { name: string } | null)?.name || 'Sin doctor'}</p>
                       <p className="text-sm text-red-600">
-                        Vencido: {format(new Date(sale.due_date), 'dd MMM yyyy', { locale: es })}
+                        {sale.invoice_number ? `#${sale.invoice_number} - ` : ''}Vencido: {format(new Date(sale.due_date), 'dd MMM yyyy', { locale: es })}
                       </p>
                     </div>
                     <div className="text-right">
@@ -215,7 +231,7 @@ export default async function DashboardPage() {
                     <div>
                       <p className="font-medium text-amber-700">{(sale.doctors as { name: string } | null)?.name || 'Sin doctor'}</p>
                       <p className="text-sm text-amber-600">
-                        Vence: {format(new Date(sale.due_date), 'dd MMM yyyy', { locale: es })}
+                        {sale.invoice_number ? `#${sale.invoice_number} - ` : ''}Vence: {format(new Date(sale.due_date), 'dd MMM yyyy', { locale: es })}
                       </p>
                     </div>
                     <div className="text-right">

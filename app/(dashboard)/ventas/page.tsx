@@ -44,7 +44,7 @@ export default async function VentasPage() {
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Ventas</h1>
         <p className="text-muted-foreground">
-          Registra y gestiona tus ventas
+          Registra y gestiona tus ventas con número de factura
         </p>
       </div>
       <SalesList 

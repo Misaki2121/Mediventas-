@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { BarChart3, DollarSign, TrendingUp, Wallet } from 'lucide-react'
+import { BarChart3, DollarSign, TrendingUp, Wallet, CreditCard } from 'lucide-react'
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -24,41 +24,56 @@ export default async function ReportesPage() {
 
   const { data: sales } = await supabase
     .from('sales')
-    .select('id, total, date, status, due_date')
+    .select('id, total, date, status, due_date, invoice_number')
     .eq('user_id', user?.id)
     .gte('date', format(startDate, 'yyyy-MM-dd'))
     .order('date', { ascending: false })
 
-  const { data: payments } = await supabase
+  // Get ALL payments to calculate real commissions
+  const { data: allPayments } = await supabase
     .from('payments')
-    .select('sale_id, amount')
+    .select('sale_id, amount, payment_date')
 
-  // Calculate monthly stats
+  // Filter payments by user's sales
+  const userSaleIds = sales?.map(s => s.id) || []
+  const payments = allPayments?.filter(p => userSaleIds.includes(p.sale_id)) || []
+
+  // Calculate monthly stats - commission is based on PAYMENTS received, not sales
   const monthlyStats = []
   for (let i = 0; i < 6; i++) {
     const monthDate = subMonths(today, i)
     const monthStart = startOfMonth(monthDate)
     const monthEnd = endOfMonth(monthDate)
 
+    // Sales made this month
     const monthSales = sales?.filter(sale => {
       const saleDate = new Date(sale.date)
       return saleDate >= monthStart && saleDate <= monthEnd
     }) || []
 
     const totalSales = monthSales.reduce((acc, sale) => acc + Number(sale.total), 0)
-    const commission = totalSales * 0.05
+
+    // Payments received this month (this is what commission is based on)
+    const monthPayments = payments.filter(payment => {
+      const paymentDate = new Date(payment.payment_date)
+      return paymentDate >= monthStart && paymentDate <= monthEnd
+    })
+
+    const totalPaymentsReceived = monthPayments.reduce((acc, p) => acc + Number(p.amount), 0)
+    const commission = totalPaymentsReceived * 0.05
 
     monthlyStats.push({
       month: format(monthDate, 'MMMM yyyy', { locale: es }),
       salesCount: monthSales.length,
       totalSales,
+      totalPaymentsReceived,
       commission,
     })
   }
 
   // Calculate pending balance per sale
   const salesWithBalance = sales?.map(sale => {
-    const salePayments = payments?.filter(p => p.sale_id === sale.id) || []
+    const salePayments = payments.filter(p => p.sale_id === sale.id)
     const totalPaid = salePayments.reduce((acc, p) => acc + Number(p.amount), 0)
     const balance = Number(sale.total) - totalPaid
     return {
@@ -77,12 +92,12 @@ export default async function ReportesPage() {
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Reportes</h1>
         <p className="text-muted-foreground">
-          Análisis de ventas y comisiones
+          Análisis de ventas y comisiones basadas en cobros
         </p>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -103,6 +118,23 @@ export default async function ReportesPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
+              Cobros Este Mes
+            </CardTitle>
+            <CreditCard className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              ${currentMonthStats.totalPaymentsReceived.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Total cobrado este mes
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
               Comisión Este Mes
             </CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -112,7 +144,7 @@ export default async function ReportesPage() {
               ${currentMonthStats.commission.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
             </div>
             <p className="text-xs text-muted-foreground">
-              5% del total de ventas
+              5% del total cobrado
             </p>
           </CardContent>
         </Card>
@@ -120,7 +152,7 @@ export default async function ReportesPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Balance Pendiente Total
+              Balance Pendiente
             </CardTitle>
             <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -140,9 +172,11 @@ export default async function ReportesPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5" />
-            Ventas por Mes
+            Ventas y Comisiones por Mes
           </CardTitle>
-          <CardDescription>Resumen de los últimos 6 meses</CardDescription>
+          <CardDescription>
+            Resumen de los últimos 6 meses - Comisión calculada sobre cobros reales
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-x-auto">
@@ -152,6 +186,7 @@ export default async function ReportesPage() {
                   <TableHead>Mes</TableHead>
                   <TableHead className="text-center">Ventas</TableHead>
                   <TableHead className="text-right">Total Vendido</TableHead>
+                  <TableHead className="text-right">Cobros Recibidos</TableHead>
                   <TableHead className="text-right">Comisión (5%)</TableHead>
                 </TableRow>
               </TableHeader>
@@ -162,6 +197,9 @@ export default async function ReportesPage() {
                     <TableCell className="text-center">{stats.salesCount}</TableCell>
                     <TableCell className="text-right">
                       ${stats.totalSales.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    </TableCell>
+                    <TableCell className="text-right text-green-600">
+                      ${stats.totalPaymentsReceived.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right text-teal-600 font-medium">
                       ${stats.commission.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
@@ -174,11 +212,17 @@ export default async function ReportesPage() {
 
           {/* Totals */}
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-4">
               <div>
-                <p className="text-sm text-muted-foreground">Total 6 meses</p>
+                <p className="text-sm text-muted-foreground">Total Vendido (6 meses)</p>
                 <p className="text-xl font-bold">
                   ${monthlyStats.reduce((acc, s) => acc + s.totalSales, 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Cobrado</p>
+                <p className="text-xl font-bold text-green-600">
+                  ${monthlyStats.reduce((acc, s) => acc + s.totalPaymentsReceived, 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                 </p>
               </div>
               <div>
@@ -217,6 +261,7 @@ export default async function ReportesPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Factura</TableHead>
                     <TableHead>Fecha</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Pagado</TableHead>
@@ -230,6 +275,7 @@ export default async function ReportesPage() {
                     const isOverdue = new Date(sale.due_date) < new Date()
                     return (
                       <TableRow key={sale.id}>
+                        <TableCell className="font-mono text-sm">{sale.invoice_number || '-'}</TableCell>
                         <TableCell>{format(new Date(sale.date), 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="text-right">
                           ${Number(sale.total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
@@ -247,9 +293,11 @@ export default async function ReportesPage() {
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
                             isOverdue
                               ? 'bg-red-100 text-red-700'
+                              : sale.totalPaid > 0
+                              ? 'bg-blue-100 text-blue-700'
                               : 'bg-amber-100 text-amber-700'
                           }`}>
-                            {isOverdue ? 'Vencido' : 'Pendiente'}
+                            {isOverdue ? 'Vencido' : sale.totalPaid > 0 ? 'Parcial' : 'Pendiente'}
                           </span>
                         </TableCell>
                       </TableRow>

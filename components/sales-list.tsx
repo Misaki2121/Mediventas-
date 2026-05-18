@@ -33,6 +33,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, addDays } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { toast } from 'sonner'
 
 interface SaleItem {
   id: string
@@ -44,6 +45,7 @@ interface SaleItem {
 interface Sale {
   id: string
   doctor_id: string
+  invoice_number: string
   date: string
   total: number
   payment_term: number
@@ -85,14 +87,16 @@ interface CartItem {
   price: number
 }
 
-export function SalesList({ initialSales, doctors, products, payments }: SalesListProps) {
+export function SalesList({ initialSales, doctors, products, payments: initialPayments }: SalesListProps) {
   const [sales, setSales] = useState(initialSales)
+  const [payments] = useState(initialPayments)
   const [search, setSearch] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [viewingSale, setViewingSale] = useState<Sale | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
     doctor_id: '',
+    invoice_number: '',
     date: format(new Date(), 'yyyy-MM-dd'),
     payment_term: '30',
   })
@@ -103,7 +107,8 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
 
   const filteredSales = sales.filter(sale =>
     sale.doctors?.name.toLowerCase().includes(search.toLowerCase()) ||
-    sale.status.toLowerCase().includes(search.toLowerCase())
+    sale.status.toLowerCase().includes(search.toLowerCase()) ||
+    sale.invoice_number?.toLowerCase().includes(search.toLowerCase())
   )
 
   const getBalance = (saleId: string, total: number) => {
@@ -115,6 +120,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
   const resetForm = () => {
     setFormData({
       doctor_id: '',
+      invoice_number: '',
       date: format(new Date(), 'yyyy-MM-dd'),
       payment_term: '30',
     })
@@ -156,7 +162,11 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (cart.length === 0) {
-      alert('Agrega al menos un producto')
+      toast.error('Agrega al menos un producto')
+      return
+    }
+    if (!formData.invoice_number.trim()) {
+      toast.error('El número de factura es obligatorio')
       return
     }
     setIsLoading(true)
@@ -168,11 +178,12 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
       const saleDate = new Date(formData.date)
       const dueDate = addDays(saleDate, parseInt(formData.payment_term))
 
-      // Create sale
+      // Create sale with invoice_number
       const { data: sale, error: saleError } = await supabase
         .from('sales')
         .insert({
           doctor_id: formData.doctor_id,
+          invoice_number: formData.invoice_number.trim(),
           date: formData.date,
           total: cartTotal,
           payment_term: parseInt(formData.payment_term),
@@ -186,7 +197,14 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
         `)
         .single()
 
-      if (saleError) throw saleError
+      if (saleError) {
+        if (saleError.code === '23505') {
+          toast.error('Ya existe una venta con ese número de factura')
+        } else {
+          toast.error('Error al crear la venta')
+        }
+        throw saleError
+      }
 
       // Create sale items
       const saleItems = cart.map(item => ({
@@ -224,6 +242,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
 
       setIsOpen(false)
       resetForm()
+      toast.success(`Venta #${formData.invoice_number} registrada correctamente`)
       router.refresh()
     } catch (error) {
       console.error('Error creating sale:', error)
@@ -256,7 +275,17 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                   </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Número de Factura *</Label>
+                      <Input
+                        type="text"
+                        placeholder="Ej: F001-00123"
+                        value={formData.invoice_number}
+                        onChange={(e) => setFormData({ ...formData, invoice_number: e.target.value })}
+                        required
+                      />
+                    </div>
                     <div className="space-y-2">
                       <Label>Doctor *</Label>
                       <Select
@@ -276,6 +305,8 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                         </SelectContent>
                       </Select>
                     </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Fecha *</Label>
                       <Input
@@ -383,7 +414,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                     </Button>
                     <Button 
                       type="submit" 
-                      disabled={isLoading || cart.length === 0 || !formData.doctor_id} 
+                      disabled={isLoading || cart.length === 0 || !formData.doctor_id || !formData.invoice_number.trim()} 
                       className="bg-teal-600 hover:bg-teal-700"
                     >
                       {isLoading ? 'Guardando...' : 'Guardar Venta'}
@@ -399,7 +430,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Buscar ventas..."
+                placeholder="Buscar por doctor, factura o estado..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-10"
@@ -416,6 +447,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Factura</TableHead>
                     <TableHead>Doctor</TableHead>
                     <TableHead>Fecha</TableHead>
                     <TableHead className="text-right">Total</TableHead>
@@ -431,6 +463,9 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                     const isOverdue = new Date(sale.due_date) < new Date() && balance > 0
                     return (
                       <TableRow key={sale.id}>
+                        <TableCell className="font-mono text-sm">
+                          {sale.invoice_number || '-'}
+                        </TableCell>
                         <TableCell className="font-medium">{sale.doctors?.name}</TableCell>
                         <TableCell>{format(new Date(sale.date), 'dd/MM/yyyy')}</TableCell>
                         <TableCell className="text-right">
@@ -446,11 +481,13 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
                             sale.status === 'pagado'
                               ? 'bg-green-100 text-green-700'
+                              : sale.status === 'parcialmente_pagado'
+                              ? 'bg-blue-100 text-blue-700'
                               : isOverdue
                               ? 'bg-red-100 text-red-700'
                               : 'bg-amber-100 text-amber-700'
                           }`}>
-                            {isOverdue ? 'vencido' : sale.status}
+                            {isOverdue && sale.status !== 'pagado' ? 'vencido' : sale.status === 'parcialmente_pagado' ? 'parcial' : sale.status}
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
@@ -476,7 +513,7 @@ export function SalesList({ initialSales, doctors, products, payments }: SalesLi
       <Dialog open={!!viewingSale} onOpenChange={() => setViewingSale(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Detalle de Venta</DialogTitle>
+            <DialogTitle>Detalle de Venta {viewingSale?.invoice_number ? `#${viewingSale.invoice_number}` : ''}</DialogTitle>
             <DialogDescription>
               {viewingSale?.doctors?.name} - {viewingSale && format(new Date(viewingSale.date), 'dd MMMM yyyy', { locale: es })}
             </DialogDescription>

@@ -1,22 +1,18 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// Credenciales de Supabase - usar variables de entorno o fallback a valores directos
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ifjrhkuyohrssmvobmhe.supabase.co'
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmanJoa3V5b2hyc3Ntdm9ibWhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcxODI1ODAsImV4cCI6MjA2Mjc1ODU4MH0.9v6sYOBKnKzEDHlFF0FdpHOLp4zOtnamnJKVu4WWvME'
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    // Skip Supabase auth check if env vars are not configured
-    return supabaseResponse
-  }
-
   const supabase = createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() {
@@ -56,24 +52,33 @@ export async function updateSession(request: NextRequest) {
 
   // If authenticated, check if profile is active
   if (user && !isPublicRoute && pathname !== '/') {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_active')
-      .eq('id', user.id)
-      .single()
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('is_active')
+        .eq('id', user.id)
+        .single()
 
-    // If profile doesn't exist or is not active, redirect to blocked page
-    if (!profile || profile.is_active === false) {
-      if (pathname !== '/bloqueado') {
+      // If there's an error (table doesn't exist, etc), allow access
+      if (error) {
+        console.warn('[Middleware] Error checking profile:', error.message)
+        // Continue without blocking - table might not exist yet
+      } else if (!profile || profile.is_active === false) {
+        // If profile doesn't exist or is not active, redirect to blocked page
+        if (pathname !== '/bloqueado') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/bloqueado'
+          return NextResponse.redirect(url)
+        }
+      } else if (pathname === '/bloqueado') {
+        // If user is active but on blocked page, redirect to dashboard
         const url = request.nextUrl.clone()
-        url.pathname = '/bloqueado'
+        url.pathname = '/dashboard'
         return NextResponse.redirect(url)
       }
-    } else if (pathname === '/bloqueado') {
-      // If user is active but on blocked page, redirect to dashboard
-      const url = request.nextUrl.clone()
-      url.pathname = '/dashboard'
-      return NextResponse.redirect(url)
+    } catch (e) {
+      console.warn('[Middleware] Exception checking profile:', e)
+      // Continue without blocking on errors
     }
   }
 
