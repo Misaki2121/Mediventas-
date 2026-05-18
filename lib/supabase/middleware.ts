@@ -56,24 +56,33 @@ export async function updateSession(request: NextRequest) {
 
   // If authenticated, check if profile is active
   if (user && !isPublicRoute && pathname !== '/') {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_active')
-      .eq('id', user.id)
-      .single()
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('is_active')
+        .eq('id', user.id)
+        .single()
 
-    // If profile doesn't exist or is not active, redirect to blocked page
-    if (!profile || profile.is_active === false) {
-      if (pathname !== '/bloqueado') {
+      // If there's an error (table doesn't exist, etc), allow access
+      if (error) {
+        console.warn('[Middleware] Error checking profile:', error.message)
+        // Continue without blocking - table might not exist yet
+      } else if (!profile || profile.is_active === false) {
+        // If profile doesn't exist or is not active, redirect to blocked page
+        if (pathname !== '/bloqueado') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/bloqueado'
+          return NextResponse.redirect(url)
+        }
+      } else if (pathname === '/bloqueado') {
+        // If user is active but on blocked page, redirect to dashboard
         const url = request.nextUrl.clone()
-        url.pathname = '/bloqueado'
+        url.pathname = '/dashboard'
         return NextResponse.redirect(url)
       }
-    } else if (pathname === '/bloqueado') {
-      // If user is active but on blocked page, redirect to dashboard
-      const url = request.nextUrl.clone()
-      url.pathname = '/dashboard'
-      return NextResponse.redirect(url)
+    } catch (e) {
+      console.warn('[Middleware] Exception checking profile:', e)
+      // Continue without blocking on errors
     }
   }
 
