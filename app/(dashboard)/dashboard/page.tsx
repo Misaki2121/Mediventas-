@@ -51,6 +51,31 @@ export default async function DashboardPage() {
   const totalPaymentsReceived = monthlyPayments?.reduce((acc, payment) => acc + Number(payment.amount), 0) || 0
   const commission = totalPaymentsReceived * 0.05
 
+  // Calculate pending commission (potential lost commission)
+  // Get ALL pending balance from ALL sales (not just this month)
+  const { data: allPendingSales } = await supabase
+    .from('sales')
+    .select('id, total, status')
+    .eq('user_id', user?.id)
+    .neq('status', 'pagado')
+
+  const allPendingSaleIds = allPendingSales?.map(s => s.id) || []
+  const { data: allPendingPayments } = await supabase
+    .from('payments')
+    .select('sale_id, amount')
+    .in('sale_id', allPendingSaleIds.length > 0 ? allPendingSaleIds : [''])
+
+  // Calculate total pending balance across all unpaid sales
+  const totalPendingBalance = allPendingSales?.reduce((acc, sale) => {
+    const salePayments = allPendingPayments?.filter(p => p.sale_id === sale.id) || []
+    const totalPaid = salePayments.reduce((sum, p) => sum + Number(p.amount), 0)
+    const balance = Number(sale.total) - totalPaid
+    return acc + (balance > 0 ? balance : 0)
+  }, 0) || 0
+
+  // Pending commission = pending balance × 5%
+  const pendingCommission = totalPendingBalance * 0.05
+
   // Calculate payment status for each pending sale
   const salesWithPayments = pendingSales?.map(sale => {
     const salePayments = payments?.filter(p => p.sale_id === sale.id) || []
@@ -94,7 +119,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -113,16 +138,48 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Comisión (5%)
+              Comisión Cobrada
             </CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <TrendingUp className="h-4 w-4 text-teal-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-teal-600">
               ${commission.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
             </div>
             <p className="text-xs text-muted-foreground">
-              Sobre ${totalPaymentsReceived.toLocaleString('es-MX', { minimumFractionDigits: 2 })} cobrado
+              5% de ${totalPaymentsReceived.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-amber-700">
+              Comisión Pendiente
+            </CardTitle>
+            <Clock className="h-4 w-4 text-amber-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-amber-600">
+              ${pendingCommission.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            </div>
+            <p className="text-xs text-amber-600">
+              5% de ${totalPendingBalance.toLocaleString('es-MX', { minimumFractionDigits: 2 })} por cobrar
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Saldo Pendiente
+            </CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">${totalPendingBalance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+            <p className="text-xs text-muted-foreground">
+              {allPendingSales?.length || 0} ventas pendientes
             </p>
           </CardContent>
         </Card>
@@ -228,7 +285,9 @@ export default async function DashboardPage() {
                       <p className="font-medium text-red-700">
                         ${sale.balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                       </p>
-                      <span className="text-xs text-red-600">pendiente</span>
+                      <span className="text-xs text-red-600">
+                        Comisión: ${(sale.balance * 0.05).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -244,7 +303,9 @@ export default async function DashboardPage() {
                       <p className="font-medium text-amber-700">
                         ${sale.balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                       </p>
-                      <span className="text-xs text-amber-600">por cobrar</span>
+                      <span className="text-xs text-amber-600">
+                        Comisión: ${(sale.balance * 0.05).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
                   </div>
                 ))}
